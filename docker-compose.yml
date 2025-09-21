@@ -1,12 +1,28 @@
 version: '3.8'
 
 services:
-  web:
-    build: .
-    container_name: face-recorder-web
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
     ports:
       - "8000:8000"
     volumes:
-      - ./app/recordings:/app/app/recordings   # map host recordings to container
+      - ./recordings:/app/recordings
+      - ./backend:/app
     environment:
-      - PYTHONUNBUFFERED=1
+      - PYTHONPATH=/app
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./app
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  recordings:
