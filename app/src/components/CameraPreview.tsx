@@ -3,6 +3,7 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Camera, CameraOff, Square, Circle } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { webSocketService } from '@/services/websocket';
 
 interface CameraPreviewProps {
   isDetectionActive: boolean;
@@ -20,8 +21,10 @@ export function CameraPreview({
   detectedFaces
 }: CameraPreviewProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [hasPermission, setHasPermission] = useState<boolean | null>(null);
+  const [frameCapture, setFrameCapture] = useState<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     if (isDetectionActive) {
@@ -36,12 +39,19 @@ export function CameraPreview({
   const startCamera = async () => {
     try {
       const mediaStream = await navigator.mediaDevices.getUserMedia({
-        video: { width: 1280, height: 720 },
+        video: { 
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+          frameRate: { ideal: 15 }
+        },
         audio: false
       });
       
       if (videoRef.current) {
         videoRef.current.srcObject = mediaStream;
+        videoRef.current.onloadedmetadata = () => {
+          startFrameCapture();
+        };
       }
       
       setStream(mediaStream);
@@ -53,18 +63,58 @@ export function CameraPreview({
   };
 
   const stopCamera = () => {
+    if (frameCapture) {
+      clearInterval(frameCapture);
+      setFrameCapture(null);
+    }
+    
     if (stream) {
       stream.getTracks().forEach(track => track.stop());
       setStream(null);
     }
+    
     if (videoRef.current) {
       videoRef.current.srcObject = null;
     }
   };
 
+  const startFrameCapture = () => {
+    if (!videoRef.current || !canvasRef.current) return;
+
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const captureFrame = () => {
+      if (!videoRef.current || !webSocketService.isConnected) return;
+
+      const video = videoRef.current;
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      
+      // Convert canvas to blob and send via WebSocket
+      canvas.toBlob((blob) => {
+        if (blob && webSocketService.isConnected) {
+          blob.arrayBuffer().then((buffer) => {
+            webSocketService.sendFrame(buffer);
+          });
+        }
+      }, 'image/jpeg', 0.8);
+    };
+
+    // Capture frames at 15 FPS
+    const interval = setInterval(captureFrame, 1000 / 15);
+    setFrameCapture(interval);
+  };
+
   return (
     <Card className="relative overflow-hidden bg-black">
       <div className="aspect-video relative">
+        {/* Hidden canvas for frame capture */}
+        <canvas ref={canvasRef} className="hidden" />
+        
         {isDetectionActive && hasPermission ? (
           <>
             <video
@@ -99,18 +149,21 @@ export function CameraPreview({
                 </div>
               )}
               
-              {/* Face Detection Boxes (simulated) */}
+              {/* Face Detection Boxes (simulated positions) */}
               {detectedFaces > 0 && (
                 <div className="absolute inset-0">
-                  <div 
-                    className="absolute border-2 border-detection-box rounded-lg"
-                    style={{
-                      left: '35%',
-                      top: '25%',
-                      width: '30%',
-                      height: '40%',
-                    }}
-                  />
+                  {Array.from({ length: Math.min(detectedFaces, 3) }).map((_, index) => (
+                    <div 
+                      key={index}
+                      className="absolute border-2 border-detection-box rounded-lg"
+                      style={{
+                        left: `${35 + (index * 15)}%`,
+                        top: `${25 + (index * 10)}%`,
+                        width: '25%',
+                        height: '35%',
+                      }}
+                    />
+                  ))}
                 </div>
               )}
             </div>
@@ -125,6 +178,11 @@ export function CameraPreview({
                   : 'Camera inactive'
                 }
               </p>
+              {hasPermission === false && (
+                <p className="text-xs text-muted-foreground mt-2">
+                  Please allow camera access and refresh the page
+                </p>
+              )}
             </div>
           </div>
         )}
@@ -167,12 +225,12 @@ export function CameraPreview({
           {isRecording ? (
             <>
               <Square className="w-5 h-5" />
-              Stop Recording
+              Recording Active
             </>
           ) : (
             <>
               <Circle className="w-5 h-5" />
-              Manual Record
+              Auto Recording
             </>
           )}
         </Button>

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -11,74 +11,137 @@ import {
   Clock,
   FileVideo,
   Grid3X3,
-  List
+  List,
+  RefreshCw
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { apiService } from '@/services/api';
+import { RecordingItem as ApiRecordingItem } from '@/types/api';
+import { useToast } from '@/hooks/use-toast';
 
-interface Recording {
+interface Recording extends ApiRecordingItem {
   id: string;
   title: string;
-  duration: string;
-  size: string;
-  timestamp: string;
-  thumbnail: string;
   faceCount: number;
 }
 
-// Mock data
-const mockRecordings: Recording[] = [
-  {
-    id: '1',
-    title: 'Session 1',
-    duration: '00:05:23',
-    size: '45.2 MB',
-    timestamp: '2 hours ago',
-    thumbnail: '/placeholder.svg',
-    faceCount: 1
-  },
-  {
-    id: '2',
-    title: 'Session 2',
-    duration: '00:03:17',
-    size: '28.9 MB',
-    timestamp: '5 hours ago',
-    thumbnail: '/placeholder.svg',
-    faceCount: 2
-  },
-  {
-    id: '3',
-    title: 'Session 3',
-    duration: '00:08:45',
-    size: '67.3 MB',
-    timestamp: '1 day ago',
-    thumbnail: '/placeholder.svg',
-    faceCount: 1
-  },
-  {
-    id: '4',
-    title: 'Session 4',
-    duration: '00:02:11',
-    size: '19.1 MB',
-    timestamp: '2 days ago',
-    thumbnail: '/placeholder.svg',
-    faceCount: 3
-  }
-];
-
 export function RecordingLibrary() {
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
-  const [recordings] = useState<Recording[]>(mockRecordings);
+  const [recordings, setRecordings] = useState<Recording[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const { toast } = useToast();
 
-  const handlePlay = (id: string) => {
-    console.log('Playing recording:', id);
+  const loadRecordings = async () => {
+    setIsLoading(true);
+    try {
+      const response = await apiService.getRecordings();
+      const formattedRecordings: Recording[] = response.recordings.map((recording, index) => {
+        // Generate a title from filename
+        const filename = recording.filename.split('/').pop() || recording.filename;
+        const title = filename.replace(/\.[^/.]+$/, '').replace(/recording_/, 'Session ');
+        
+        return {
+          ...recording,
+          id: `${index}`,
+          title,
+          faceCount: Math.floor(Math.random() * 3) + 1, // Simulated for now
+        };
+      });
+      setRecordings(formattedRecordings);
+    } catch (error) {
+      console.error('Failed to load recordings:', error);
+      toast({
+        title: "Error",
+        description: "Failed to load recordings.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  const handleDownload = (id: string) => {
-    console.log('Downloading recording:', id);
+  useEffect(() => {
+    loadRecordings();
+  }, []);
+
+  const handlePlay = (recording: Recording) => {
+    // Create a temporary URL to play the video
+    const videoUrl = `http://localhost:8000/recordings/${encodeURIComponent(recording.filename)}`;
+    window.open(videoUrl, '_blank');
   };
 
-  const handleDelete = (id: string) => {
-    console.log('Deleting recording:', id);
+  const handleDownload = async (recording: Recording) => {
+    try {
+      const blob = await apiService.downloadRecording(recording.filename);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = recording.filename.split('/').pop() || 'recording.mp4';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      
+      toast({
+        title: "Success",
+        description: "Recording downloaded successfully.",
+      });
+    } catch (error) {
+      console.error('Download failed:', error);
+      toast({
+        title: "Error",
+        description: "Failed to download recording.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleDelete = async (recording: Recording) => {
+    if (!confirm(`Are you sure you want to delete "${recording.title}"?`)) {
+      return;
+    }
+
+    try {
+      await apiService.deleteRecording(recording.filename);
+      setRecordings(prev => prev.filter(r => r.id !== recording.id));
+      toast({
+        title: "Success",
+        description: "Recording deleted successfully.",
+      });
+    } catch (error) {
+      console.error('Delete failed:', error);
+      toast({
+        title: "Error",
+        description: "Failed to delete recording.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const formatTimestamp = (timestamp: string) => {
+    const date = new Date(timestamp);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    
+    if (diffMs < 60000) {
+      return 'Just now';
+    } else if (diffMs < 3600000) {
+      const minutes = Math.floor(diffMs / 60000);
+      return `${minutes} minute${minutes !== 1 ? 's' : ''} ago`;
+    } else if (diffMs < 86400000) {
+      const hours = Math.floor(diffMs / 3600000);
+      return `${hours} hour${hours !== 1 ? 's' : ''} ago`;
+    } else {
+      const days = Math.floor(diffMs / 86400000);
+      return `${days} day${days !== 1 ? 's' : ''} ago`;
+    }
+  };
+
+  const formatFileSize = (bytes: number) => {
+    if (bytes < 1024 * 1024) {
+      return `${(bytes / 1024).toFixed(1)} KB`;
+    }
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   };
 
   return (
@@ -90,6 +153,14 @@ export function RecordingLibrary() {
             Recent Recordings
           </CardTitle>
           <div className="flex items-center gap-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={loadRecordings}
+              disabled={isLoading}
+            >
+              <RefreshCw className={cn("w-4 h-4", isLoading && "animate-spin")} />
+            </Button>
             <Button
               variant={viewMode === 'grid' ? 'default' : 'ghost'}
               size="sm"
@@ -108,7 +179,12 @@ export function RecordingLibrary() {
         </div>
       </CardHeader>
       <CardContent>
-        {recordings.length === 0 ? (
+        {isLoading ? (
+          <div className="text-center py-8">
+            <RefreshCw className="w-8 h-8 mx-auto mb-4 text-muted-foreground animate-spin" />
+            <p className="text-muted-foreground">Loading recordings...</p>
+          </div>
+        ) : recordings.length === 0 ? (
           <div className="text-center py-8">
             <FileVideo className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
             <p className="text-muted-foreground">No recordings yet</p>
@@ -132,17 +208,13 @@ export function RecordingLibrary() {
                 {viewMode === 'grid' ? (
                   <>
                     {/* Thumbnail */}
-                    <div className="aspect-video bg-secondary/50 relative">
-                      <img
-                        src={recording.thumbnail}
-                        alt={recording.title}
-                        className="w-full h-full object-cover"
-                      />
+                    <div className="aspect-video bg-secondary/50 relative flex items-center justify-center">
+                      <FileVideo className="w-8 h-8 text-muted-foreground" />
                       <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
                         <Button
                           variant="glass"
                           size="icon"
-                          onClick={() => handlePlay(recording.id)}
+                          onClick={() => handlePlay(recording)}
                         >
                           <Play className="w-5 h-5" />
                         </Button>
@@ -161,13 +233,13 @@ export function RecordingLibrary() {
                       <div className="flex items-center gap-3 text-xs text-muted-foreground">
                         <div className="flex items-center gap-1">
                           <Clock className="w-3 h-3" />
-                          {recording.duration}
+                          {recording.duration || '00:00'}
                         </div>
-                        <div>{recording.size}</div>
+                        <div>{formatFileSize(recording.size)}</div>
                       </div>
                       <div className="flex items-center gap-1 text-xs text-muted-foreground">
                         <Calendar className="w-3 h-3" />
-                        {recording.timestamp}
+                        {formatTimestamp(recording.timestamp)}
                       </div>
                     </div>
                     
@@ -178,7 +250,7 @@ export function RecordingLibrary() {
                           variant="glass"
                           size="icon"
                           className="h-7 w-7"
-                          onClick={() => handleDownload(recording.id)}
+                          onClick={() => handleDownload(recording)}
                         >
                           <Download className="w-3 h-3" />
                         </Button>
@@ -186,7 +258,7 @@ export function RecordingLibrary() {
                           variant="glass"
                           size="icon"
                           className="h-7 w-7 hover:bg-destructive/80"
-                          onClick={() => handleDelete(recording.id)}
+                          onClick={() => handleDelete(recording)}
                         >
                           <Trash2 className="w-3 h-3" />
                         </Button>
@@ -208,9 +280,9 @@ export function RecordingLibrary() {
                         </Badge>
                       </div>
                       <div className="flex items-center gap-4 text-xs text-muted-foreground mt-1">
-                        <span>{recording.duration}</span>
-                        <span>{recording.size}</span>
-                        <span>{recording.timestamp}</span>
+                        <span>{recording.duration || '00:00'}</span>
+                        <span>{formatFileSize(recording.size)}</span>
+                        <span>{formatTimestamp(recording.timestamp)}</span>
                       </div>
                     </div>
                     <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -218,7 +290,7 @@ export function RecordingLibrary() {
                         variant="ghost"
                         size="icon"
                         className="h-8 w-8"
-                        onClick={() => handlePlay(recording.id)}
+                        onClick={() => handlePlay(recording)}
                       >
                         <Play className="w-4 h-4" />
                       </Button>
@@ -226,7 +298,7 @@ export function RecordingLibrary() {
                         variant="ghost"
                         size="icon"
                         className="h-8 w-8"
-                        onClick={() => handleDownload(recording.id)}
+                        onClick={() => handleDownload(recording)}
                       >
                         <Download className="w-4 h-4" />
                       </Button>
@@ -234,7 +306,7 @@ export function RecordingLibrary() {
                         variant="ghost"
                         size="icon"
                         className="h-8 w-8 hover:text-destructive"
-                        onClick={() => handleDelete(recording.id)}
+                        onClick={() => handleDelete(recording)}
                       >
                         <Trash2 className="w-4 h-4" />
                       </Button>
@@ -243,14 +315,6 @@ export function RecordingLibrary() {
                 )}
               </div>
             ))}
-          </div>
-        )}
-        
-        {recordings.length > 0 && (
-          <div className="mt-6 text-center">
-            <Button variant="outline">
-              View All Recordings
-            </Button>
           </div>
         )}
       </CardContent>
