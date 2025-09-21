@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Face-Triggered Recording WebApp</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Face-Triggered Recording WebApp</h1>
+            <p>Automatic video recording when face is detected</p>
+        </header>
+
+        <main>
+            <div class="video-section">
+                <div class="video-container">
+                    <video id="webcam" autoplay muted playsinline></video>
+                    <canvas id="canvas" style="display: none;"></canvas>
+                    <div class="overlay">
+                        <div id="face-indicator" class="face-indicator">
+                            <span id="face-status">No face detected</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="controls">
+                    <button id="start-camera" class="btn btn-primary">Start Camera</button>
+                    <button id="stop-camera" class="btn btn-secondary" disabled>Stop Camera</button>
+                    <button id="manual-record" class="btn btn-record" disabled>Manual Record</button>
+                </div>
+
+                <div class="status">
+                    <div class="status-item">
+                        <label>Camera Status:</label>
+                        <span id="camera-status" class="status-inactive">Inactive</span>
+                    </div>
+                    <div class="status-item">
+                        <label>Recording Status:</label>
+                        <span id="recording-status" class="status-inactive">Not Recording</span>
+                    </div>
+                    <div class="status-item">
+                        <label>Face Detection:</label>
+                        <span id="detection-status" class="status-inactive">Inactive</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="recordings-section">
+                <h2>Recordings</h2>
+                <div class="recordings-controls">
+                    <button id="refresh-recordings" class="btn btn-secondary">Refresh List</button>
+                    <button id="clear-all" class="btn btn-danger">Clear All</button>
+                </div>
+                <div id="recordings-list" class="recordings-list">
+                    <p class="no-recordings">No recordings available</p>
+                </div>
+            </div>
+
+            <div class="settings-section">
+                <h2>Settings</h2>
+                <div class="setting-item">
+                    <label for="detection-interval">Detection Interval (ms):</label>
+                    <input type="range" id="detection-interval" min="100" max="2000" value="500" step="100">
+                    <span id="interval-value">500ms</span>
+                </div>
+                <div class="setting-item">
+                    <label for="auto-record">Auto-Record on Face Detection:</label>
+                    <input type="checkbox" id="auto-record" checked>
+                </div>
+                <div class="setting-item">
+                    <label for="record-duration">Auto-Record Duration (seconds):</label>
+                    <input type="range" id="record-duration" min="5" max="60" value="10" step="5">
+                    <span id="duration-value">10s</span>
+                </div>
+            </div>
+        </main>
+
+        <footer>
+            <div class="logs">
+                <h3>Activity Log</h3>
+                <div id="log-container" class="log-container"></div>
+                <button id="clear-logs" class="btn btn-small">Clear Logs</button>
+            </div>
+        </footer>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>
